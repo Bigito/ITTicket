@@ -168,14 +168,21 @@ function App() {
 
   // Fetch users when not logged in, and tickets/master data when logged in
   useEffect(() => {
-    if (isLoggedIn && user) {
-      fetchTickets();
-      fetchIssueTypes();
-      fetchBranches();
+    // Handle URL routing and token validation (runs for both logged in and logged out users)
+    const handleUrlChange = () => {
+      const path = window.location.pathname;
       
-      // Handle URL routing
-      const handleUrlChange = () => {
-        const path = window.location.pathname;
+      // First, check for token parameter in any URL (priority check)
+      const urlParams = new URLSearchParams(window.location.search);
+      const tokenFromUrl = urlParams.get('token');
+      if (tokenFromUrl) {
+        // Token found in URL, validate it and redirect accordingly (always validate token, even if logged in)
+        validateTokenAndRedirect(tokenFromUrl);
+        return;
+      }
+      
+      // If user is logged in, handle normal routing
+      if (isLoggedIn && user) {
         if (path.startsWith('/ticket/')) {
           const ticketNumber = path.split('/ticket/')[1];
           if (ticketNumber) {
@@ -213,21 +220,40 @@ function App() {
           fetchMasterData();
           // Fetch users from database
           fetchUsers();
+        } else if (path === '/login') {
+          // Force show login page regardless of login status
+          setCurrentPage('login');
+          setUrlTicketNumber(null);
+          setSelectedTicket(null);
+          setEditingInDetail(false);
         }
-      };
-      
-      // Initial URL check
-      handleUrlChange();
-      
-      // Listen for URL changes
-      window.addEventListener('popstate', handleUrlChange);
-      
-      return () => {
-        window.removeEventListener('popstate', handleUrlChange);
-      };
+      } else if (path === '/login') {
+        // User not logged in and on login page
+        setCurrentPage('login');
+        setUrlTicketNumber(null);
+        setSelectedTicket(null);
+        setEditingInDetail(false);
+      }
+    };
+    
+    // Initial URL check
+    handleUrlChange();
+    
+    // Listen for URL changes
+    window.addEventListener('popstate', handleUrlChange);
+    
+    // If user is logged in, fetch data
+    if (isLoggedIn && user) {
+      fetchTickets();
+      fetchIssueTypes();
+      fetchBranches();
     } else {
       fetchUsers(); // Load users for login form
     }
+    
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+    };
   }, [isLoggedIn, user]);
 
   // Debug: Log when selectedTicket changes
@@ -789,6 +815,61 @@ function App() {
     }
   };
 
+  // Validate token and redirect based on result using existing RPC endpoint
+  const validateTokenAndRedirect = async (token) => {
+    if (!token.trim()) {
+      // No token provided, redirect to login
+      setCurrentPage('login');
+      window.history.pushState({}, '', '/login');
+      return;
+    }
+
+    try {
+      console.log('🔍 Validating token:', token);
+      const response = await axios.get(`/api/rpc/users?token=${encodeURIComponent(token)}`);
+      console.log('✅ Token validation response:', response.data);
+      
+      if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+        // Token is valid, set user data and redirect to main page
+        const rpcUser = response.data[0]; // Take the first user
+        
+        // Create user object from RPC user data
+        const userData = {
+          username: rpcUser.username,
+          fullName: rpcUser.name_EN || rpcUser.username,
+          email: rpcUser.username.includes('@') ? rpcUser.username : '',
+          role: rpcUser.level === '100' ? 'admin' : 'user', // Assuming level 100 is admin
+          department: rpcUser.subDepartment_Company || rpcUser.department_Company || 'IT',
+          phone: rpcUser.phone || '',
+          empid: rpcUser.empid,
+          bu: rpcUser.bu,
+          position: rpcUser.position || '',
+          shareToken: rpcUser.shareToken
+        };
+
+        setUser(userData);
+        setIsLoggedIn(true);
+        localStorage.setItem('user', JSON.stringify(userData));
+        
+        // Redirect to main page
+        setCurrentPage('main');
+        window.history.pushState({}, '', '/');
+        
+        console.log('✅ Token valid - User logged in:', userData);
+      } else {
+        // Token is invalid, redirect to login
+        setCurrentPage('login');
+        window.history.pushState({}, '', '/login');
+        console.log('❌ Token invalid - Redirecting to login');
+      }
+    } catch (error) {
+      console.error('❌ Error validating token:', error);
+      // On error, redirect to login
+      setCurrentPage('login');
+      window.history.pushState({}, '', '/login');
+    }
+  };
+
   // Filter branches based on search
   const getFilteredBranches = () => {
     if (!branchSearch.trim()) {
@@ -1088,55 +1169,80 @@ function App() {
 
   const handleMicrosoftLogin = async () => {
     try {
+      console.log('🔍 Starting Microsoft login...');
+      console.log('🔍 MSAL instance:', instance);
+      console.log('🔍 Login request:', loginRequest);
+      
       const loginResponse = await instance.loginPopup(loginRequest);
-      console.log('Microsoft login successful:', loginResponse);
+      console.log('✅ Microsoft login successful:', loginResponse);
       
       // Get user info from Microsoft Graph
+      console.log('🔍 Fetching user info from Microsoft Graph...');
       const graphResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
         headers: {
           Authorization: `Bearer ${loginResponse.accessToken}`
         }
       });
-      const graphData = await graphResponse.json();
       
-      // Check if user exists in database, if not create them
+      if (!graphResponse.ok) {
+        throw new Error(`Microsoft Graph API error: ${graphResponse.status} ${graphResponse.statusText}`);
+      }
+      
+      const graphData = await graphResponse.json();
+      console.log('✅ Microsoft Graph data:', graphData);
+      
+      // Authenticate against RPC database
+      console.log('🔍 Authenticating with RPC database...');
       try {
-        const checkUserResponse = await axios.get(`/api/users`);
-        const existingUser = checkUserResponse.data.find(u => u.email === graphData.mail || u.email === graphData.userPrincipalName);
+        const authResponse = await axios.post('/api/auth/microsoft', {
+          Email: graphData.mail || graphData.userPrincipalName,
+          DisplayName: graphData.displayName
+        });
         
-        let userData;
-        if (existingUser) {
-          userData = existingUser;
-        } else {
-          // Create new user in database
-          const newUserData = {
-            username: graphData.userPrincipalName.split('@')[0],
-            fullName: graphData.displayName,
-            email: graphData.mail || graphData.userPrincipalName,
-            role: 'user', // Default role
-            department: graphData.department || '',
-            phone: graphData.mobilePhone || graphData.businessPhones?.[0] || '',
-            password: 'microsoft-sso' // Placeholder for SSO users
-          };
+        console.log('✅ RPC authentication response:', authResponse.data);
+        
+        if (authResponse.data.valid && authResponse.data.user) {
+          // User found in RPC database
+          const userData = authResponse.data.user;
           
-          const createUserResponse = await axios.post('/api/users', newUserData);
-          userData = createUserResponse.data;
+          setUser(userData);
+          setIsLoggedIn(true);
+          localStorage.setItem('user', JSON.stringify(userData));
+          
+          // Redirect to main page
+          setCurrentPage('main');
+          window.history.pushState({}, '', '/');
+          
+          showSuccessModal(`Welcome, ${userData.fullName}!`);
+          
+          console.log('✅ Microsoft user authenticated via RPC database:', userData);
+        } else {
+          // User not found in RPC database
+          showErrorModal('Your Microsoft account is not registered in the RPC system. Please contact your administrator.');
+          console.log('❌ Microsoft user not found in RPC database');
         }
-        
-      setUser(userData);
-      setIsLoggedIn(true);
-      localStorage.setItem('user', JSON.stringify(userData));
-        showSuccessModal(`Welcome, ${userData.fullName}!`);
       } catch (error) {
-        console.error('Error syncing user with database:', error);
-        showErrorModal('Failed to sync user account. Please contact administrator.');
+        console.error('❌ Error authenticating with RPC database:', error);
+        console.error('❌ Error details:', error.response?.data);
+        showErrorModal('Failed to authenticate with RPC system. Please contact administrator.');
       }
     } catch (error) {
-      console.error('Microsoft login failed:', error);
+      console.error('❌ Microsoft login failed:', error);
+      console.error('❌ Error details:', {
+        errorCode: error.errorCode,
+        errorMessage: error.errorMessage,
+        name: error.name,
+        stack: error.stack
+      });
+      
       if (error.errorCode === 'user_cancelled') {
         showErrorModal('Login cancelled');
-    } else {
-        showErrorModal('Microsoft login failed. Please try again.');
+      } else if (error.errorCode === 'popup_window_error') {
+        showErrorModal('Popup window was blocked. Please allow popups for this site and try again.');
+      } else if (error.errorCode === 'interaction_required') {
+        showErrorModal('Additional interaction required. Please try again.');
+      } else {
+        showErrorModal(`Microsoft login failed: ${error.errorMessage || 'Unknown error'}. Please try again.`);
       }
     }
   };
@@ -1159,6 +1265,9 @@ function App() {
     setIsLoggedIn(false);
     localStorage.removeItem('user');
     setTickets([]);
+     setCurrentPage('login');
+    // Redirect to login page
+    window.history.pushState({}, '', '/login');
   };
 
   const handleLoginInputChange = (e) => {
@@ -1209,8 +1318,8 @@ function App() {
     return priorities.find(p => p.name.toLowerCase() === priorityName.toLowerCase()) || priorities[0];
   };
 
-  // Show login page if not logged in
-  if (!isLoggedIn) {
+  // Show login page if not logged in or if explicitly requesting login page
+  if (!isLoggedIn || currentPage === 'login') {
     return (
       <div className="App" data-grm-disable="true">
         <div className="login-container">

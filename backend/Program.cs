@@ -1338,7 +1338,7 @@ app.MapGet("/api/rpc", async (HttpContext context, RpcWebsiteDbContext rpcWebsit
             // Use raw SQL to get real user data with specific columns
             var sql = @"
                 SELECT Username, BU, LoginType, PasswordLogin, [Level], Empid, ShareToken, 
-                       SubDepartment_Company, DeptCode, SubDept 
+                       SubDepartment_Company, DeptCode, SubDept, Name_EN, Position, Phone
                 FROM dbo.Users 
                 WHERE ShareToken = @token";
 
@@ -1365,7 +1365,10 @@ app.MapGet("/api/rpc", async (HttpContext context, RpcWebsiteDbContext rpcWebsit
                                 ShareToken = reader["ShareToken"]?.ToString() ?? "",
                                 SubDepartment_Company = reader["SubDepartment_Company"]?.ToString() ?? "",
                                 DeptCode = reader["DeptCode"]?.ToString() ?? "",
-                                SubDept = reader["SubDept"]?.ToString() ?? ""
+                                SubDept = reader["SubDept"]?.ToString() ?? "",
+                                Name_EN = reader["Name_EN"]?.ToString() ?? "",
+                                Position = reader["Position"]?.ToString() ?? "",
+                                Phone = reader["Phone"]?.ToString() ?? ""
                             });
                         }
                     }
@@ -1410,7 +1413,7 @@ app.MapGet("/api/rpc/users", async (HttpContext context, RpcWebsiteDbContext rpc
             // Use raw SQL to get real user data with specific columns
             var sql = @"
                 SELECT Username, BU, LoginType, PasswordLogin, [Level], Empid, ShareToken, 
-                       SubDepartment_Company, DeptCode, SubDept 
+                       SubDepartment_Company, DeptCode, SubDept, Name_EN, Position, Phone
                 FROM dbo.Users 
                 WHERE ShareToken = @token";
 
@@ -1437,7 +1440,10 @@ app.MapGet("/api/rpc/users", async (HttpContext context, RpcWebsiteDbContext rpc
                                 ShareToken = reader["ShareToken"]?.ToString() ?? "",
                                 SubDepartment_Company = reader["SubDepartment_Company"]?.ToString() ?? "",
                                 DeptCode = reader["DeptCode"]?.ToString() ?? "",
-                                SubDept = reader["SubDept"]?.ToString() ?? ""
+                                SubDept = reader["SubDept"]?.ToString() ?? "",
+                                Name_EN = reader["Name_EN"]?.ToString() ?? "",
+                                Position = reader["Position"]?.ToString() ?? "",
+                                Phone = reader["Phone"]?.ToString() ?? ""
                             });
                         }
                     }
@@ -1483,6 +1489,190 @@ app.MapGet("/api/rpc/tokens", async (RpcWebsiteDbContext rpcWebsiteContext) =>
     {
         Console.WriteLine($"❌ Error fetching ShareTokens: {ex.Message}");
         return Results.Problem($"Failed to fetch ShareTokens: {ex.Message}");
+    }
+});
+
+// Token validation endpoint - checks if token exists and returns user info
+app.MapGet("/api/validate-token", async (HttpContext context, RpcWebsiteDbContext rpcWebsiteContext) =>
+{
+    try
+    {
+        var token = context.Request.Query["token"].FirstOrDefault();
+        if (string.IsNullOrEmpty(token))
+        {
+            return Results.BadRequest(new { error = "Token is required.", valid = false });
+        }
+
+        Console.WriteLine($"🔍 Validating token: {token}");
+
+        // Check if token exists in database
+        var sql = @"
+            SELECT TOP 1 Username, BU, LoginType, PasswordLogin, [Level], Empid, ShareToken, 
+                   SubDepartment_Company, DeptCode, SubDept 
+            FROM dbo.Users 
+            WHERE ShareToken = @token";
+
+        using (var connection = rpcWebsiteContext.Database.GetDbConnection())
+        {
+            await connection.OpenAsync();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                command.Parameters.Add(new Microsoft.Data.SqlClient.SqlParameter("@token", token));
+                
+                using (var reader = await command.ExecuteReaderAsync())
+                {
+                    if (await reader.ReadAsync())
+                    {
+                        var user = new RpcUser
+                        {
+                            Username = reader["Username"]?.ToString() ?? "",
+                            BU = reader["BU"]?.ToString() ?? "",
+                            LoginType = reader["LoginType"]?.ToString() ?? "",
+                            PasswordLogin = reader["PasswordLogin"]?.ToString() ?? "",
+                            Level = reader["Level"]?.ToString() ?? "",
+                            Empid = reader["Empid"]?.ToString() ?? "",
+                            ShareToken = reader["ShareToken"]?.ToString() ?? "",
+                            SubDepartment_Company = reader["SubDepartment_Company"]?.ToString() ?? "",
+                            DeptCode = reader["DeptCode"]?.ToString() ?? "",
+                            SubDept = reader["SubDept"]?.ToString() ?? ""
+                        };
+
+                        Console.WriteLine($"✅ Token valid - User: {user.Username}");
+                        return Results.Ok(new { valid = true, user = user });
+                    }
+                }
+            }
+        }
+
+        Console.WriteLine($"❌ Token invalid: {token}");
+        return Results.Ok(new { valid = false, message = "Token not found" });
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"❌ Error validating token: {ex.Message}");
+        return Results.Problem($"Failed to validate token: {ex.Message}");
+    }
+});
+
+// Microsoft authentication endpoint - validates Microsoft user against RPC database
+app.MapPost("/api/auth/microsoft", async (HttpContext context, RpcWebsiteDbContext rpcWebsiteContext) =>
+{
+    try
+    {
+        using var reader = new StreamReader(context.Request.Body);
+        var requestBody = await reader.ReadToEndAsync();
+        var requestData = System.Text.Json.JsonSerializer.Deserialize<MicrosoftAuthRequest>(requestBody);
+        
+        if (requestData == null || string.IsNullOrEmpty(requestData.Email))
+        {
+            return Results.BadRequest(new { error = "Email is required.", valid = false });
+        }
+
+        Console.WriteLine($"🔍 Microsoft authentication for email: {requestData.Email}");
+
+        // Search for user in RPC database by email with complete user data
+        var sql = @"
+            SELECT TOP 1 Username, BU, LoginType, PasswordLogin, [Level], Empid, Job_Grade, 
+                   Workplaceid, Name_EN, Position, HQ_Status, Location, Location_Code, 
+                   Department, Department_Company, MgrEmpid, Phone, RocksTokenPoint, 
+                   EmailNotification, Enable_Status, DOB, StartDate, ResignDate, 
+                   Lastlogin, ShareToken, SubDepartment_Company, DeptCode, SubDept 
+            FROM dbo.Users 
+            WHERE Username = @email OR Username LIKE @emailPattern";
+
+        using (var connection = rpcWebsiteContext.Database.GetDbConnection())
+        {
+            await connection.OpenAsync();
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText = sql;
+                command.Parameters.Add(new Microsoft.Data.SqlClient.SqlParameter("@email", requestData.Email));
+                command.Parameters.Add(new Microsoft.Data.SqlClient.SqlParameter("@emailPattern", "%" + requestData.Email + "%"));
+                
+                using (var dataReader = await command.ExecuteReaderAsync())
+                {
+                    if (await dataReader.ReadAsync())
+                    {
+                        var rpcUser = new RpcUser
+                        {
+                            Username = dataReader["Username"]?.ToString() ?? "",
+                            BU = dataReader["BU"]?.ToString() ?? "",
+                            LoginType = dataReader["LoginType"]?.ToString() ?? "",
+                            PasswordLogin = dataReader["PasswordLogin"]?.ToString() ?? "",
+                            Level = dataReader["Level"]?.ToString() ?? "",
+                            Empid = dataReader["Empid"]?.ToString() ?? "",
+                            Job_Grade = dataReader["Job_Grade"]?.ToString() ?? "",
+                            Workplaceid = dataReader["Workplaceid"]?.ToString() ?? "",
+                            Name_EN = dataReader["Name_EN"]?.ToString() ?? "",
+                            Position = dataReader["Position"]?.ToString() ?? "",
+                            HQ_Status = dataReader["HQ_Status"]?.ToString() ?? "",
+                            Location = dataReader["Location"]?.ToString() ?? "",
+                            Location_Code = dataReader["Location_Code"]?.ToString() ?? "",
+                            Department = dataReader["Department"]?.ToString() ?? "",
+                            Department_Company = dataReader["Department_Company"]?.ToString() ?? "",
+                            MgrEmpid = dataReader["MgrEmpid"]?.ToString() ?? "",
+                            Phone = dataReader["Phone"]?.ToString() ?? "",
+                            RocksTokenPoint = dataReader["RocksTokenPoint"]?.ToString() ?? "",
+                            EmailNotification = dataReader["EmailNotification"]?.ToString() ?? "",
+                            Enable_Status = dataReader["Enable_Status"]?.ToString() ?? "",
+                            DOB = dataReader["DOB"]?.ToString() ?? "",
+                            StartDate = dataReader["StartDate"]?.ToString() ?? "",
+                            ResignDate = dataReader["ResignDate"]?.ToString() ?? "",
+                            Lastlogin = dataReader["Lastlogin"]?.ToString() ?? "",
+                            ShareToken = dataReader["ShareToken"]?.ToString() ?? "",
+                            SubDepartment_Company = dataReader["SubDepartment_Company"]?.ToString() ?? "",
+                            DeptCode = dataReader["DeptCode"]?.ToString() ?? "",
+                            SubDept = dataReader["SubDept"]?.ToString() ?? ""
+                        };
+
+                        Console.WriteLine($"✅ Microsoft user found in RPC database: {rpcUser.Username}");
+                        
+                        // Create user data for frontend with comprehensive RPC user data
+                        var userData = new
+                        {
+                            username = rpcUser.Username,
+                            fullName = !string.IsNullOrEmpty(rpcUser.Name_EN) ? rpcUser.Name_EN : rpcUser.Username,
+                            email = rpcUser.Username,
+                            role = rpcUser.Level == "100" ? "admin" : "user",
+                            department = !string.IsNullOrEmpty(rpcUser.SubDepartment_Company) ? rpcUser.SubDepartment_Company : (!string.IsNullOrEmpty(rpcUser.Department_Company) ? rpcUser.Department_Company : (!string.IsNullOrEmpty(rpcUser.Department) ? rpcUser.Department : "IT")),
+                            phone = rpcUser.Phone,
+                            empid = rpcUser.Empid,
+                            bu = rpcUser.BU,
+                            position = rpcUser.Position,
+                            shareToken = rpcUser.ShareToken,
+                            // Additional RPC user fields
+                            jobGrade = rpcUser.Job_Grade,
+                            workplaceid = rpcUser.Workplaceid,
+                            hqStatus = rpcUser.HQ_Status,
+                            location = rpcUser.Location,
+                            locationCode = rpcUser.Location_Code,
+                            mgrEmpid = rpcUser.MgrEmpid,
+                            rocksTokenPoint = rpcUser.RocksTokenPoint,
+                            emailNotification = rpcUser.EmailNotification,
+                            enableStatus = rpcUser.Enable_Status,
+                            dob = rpcUser.DOB,
+                            startDate = rpcUser.StartDate,
+                            resignDate = rpcUser.ResignDate,
+                            lastlogin = rpcUser.Lastlogin,
+                            subDepartmentCompany = rpcUser.SubDepartment_Company,
+                            deptCode = rpcUser.DeptCode,
+                            subDept = rpcUser.SubDept
+                        };
+
+                        return Results.Ok(new { valid = true, user = userData });
+                    }
+                }
+            }
+        }
+
+        Console.WriteLine($"❌ Microsoft user not found in RPC database: {requestData.Email}");
+        return Results.Ok(new { valid = false, message = "User not found in RPC database" });
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"❌ Error authenticating Microsoft user: {ex.Message}");
+        return Results.Problem($"Failed to authenticate user: {ex.Message}");
     }
 });
 
@@ -2266,4 +2456,11 @@ public class RpcUser
     public string SubDepartment_Company { get; set; } = string.Empty;
     public string DeptCode { get; set; } = string.Empty;
     public string SubDept { get; set; } = string.Empty;
+}
+
+// Microsoft authentication request model
+public class MicrosoftAuthRequest
+{
+    public string Email { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
 }

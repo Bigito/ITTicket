@@ -129,3 +129,4 @@ C:\Users\PC\Documents\ITticket\backend\obj\Debug\net8.0\refint\ITTicket.dll
 C:\Users\PC\Documents\ITticket\backend\obj\Debug\net8.0\ITTicket.pdb
 C:\Users\PC\Documents\ITticket\backend\obj\Debug\net8.0\ITTicket.genruntimeconfig.cache
 C:\Users\PC\Documents\ITticket\backend\obj\Debug\net8.0\ref\ITTicket.dll
+C:\Users\PC\Documents\ITticket\backend\obj\Debug\net8.0\ITTicket.sourcelink.json
