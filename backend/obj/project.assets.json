@@ -4067,23 +4067,23 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\PC\\.nuget\\packages\\": {},
+    "C:\\Users\\jiray\\.nuget\\packages\\": {},
     "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\PC\\Documents\\ITticket\\backend\\ITTicket.csproj",
+      "projectUniqueName": "C:\\Users\\jiray\\OneDrive\\Documents\\GitHub\\ITTicket\\backend\\ITTicket.csproj",
       "projectName": "ITTicket",
-      "projectPath": "C:\\Users\\PC\\Documents\\ITticket\\backend\\ITTicket.csproj",
-      "packagesPath": "C:\\Users\\PC\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\PC\\Documents\\ITticket\\backend\\obj\\",
+      "projectPath": "C:\\Users\\jiray\\OneDrive\\Documents\\GitHub\\ITTicket\\backend\\ITTicket.csproj",
+      "packagesPath": "C:\\Users\\jiray\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\jiray\\OneDrive\\Documents\\GitHub\\ITTicket\\backend\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
       ],
       "configFilePaths": [
-        "C:\\Users\\PC\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Users\\jiray\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],

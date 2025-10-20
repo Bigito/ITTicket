@@ -15,29 +15,19 @@ builder.Services.AddDbContext<RpcDbContext>(options =>
 builder.Services.AddDbContext<RpcWebsiteDbContext>(options =>
     options.UseSqlServer("Data Source=203.151.66.69;Initial Catalog=RpcWebsite;User ID=sarpc;Password=Ub@nSA53dzTx2>Ps;TrustServerCertificate=True;"));
 
+// Add services
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowReactApp", policy =>
-    {
-        policy.WithOrigins("http://localhost:3000", "http://127.0.0.1:3000")
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
-    });
-    
-    // More permissive policy for development
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyHeader()
-              .AllowAnyMethod();
-    });
+    options.AddDefaultPolicy(policy =>
+        policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
 });
 
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
-app.UseCors("AllowAll"); // Using more permissive policy for development
+app.UseCors();
+app.UseStaticFiles();
+app.MapFallbackToFile("index.html");
 
 // Add CORS headers to ALL responses
 app.Use(async (context, next) =>
